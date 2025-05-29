@@ -8,6 +8,8 @@
 #'
 #' @export build_barcode_matrix_fast
 #' @md
+#' @importFrom dplyr filter mutate ungroup n
+#' @importFrom tidyr pivot_wider unnest
 build_barcode_matrix_fast <- function(bt, value = NULL){
 
   #bc <- bt[, .SD %>% unique, .SDcols = c("rn", "Barcode")] %>%
@@ -20,20 +22,31 @@ build_barcode_matrix_fast <- function(bt, value = NULL){
   ## Then create the barcode matrix by first spiltting multi-barcoded cells into multiple rows where each row represents a unique barcode in a cell
   ## Then creating the one-hot encoded table by making wider.
 
-  #### set aside barcoded cells
-  bt1 <- bt[is.na(bt$Barcode)==FALSE,]
+  #### if there are non-bcarded (Barcode == NA_ cells) then remap NA cells to dummy barcodes
   
-  #### find non-barcoded (Barcode == NA) cells and assign a unique dummy name to each so that they don't cluster together
-  bt2 <- bt[is.na(bt$Barcode)==TRUE,]
-  bt2 <- bt2 %>% mutate(Barcode = paste0('na',seq(1,nrow(bt2))))
+  if (any(is.na(bt$Barcode))) {
+    #### set aside barcoded cells
+    bt1 <- bt[!is.na(bt$Barcode), ]
+    #### find non-barcoded (Barcode == NA) cells and assign a unique dummy name
+    bt2 <- bt[is.na(bt$Barcode), ]
+    bt2$Barcode <- paste0("na", seq_len(nrow(bt2)))
+    #### combine back together with new dummy barcode names for NA cells
+    bt <- rbind(bt1, bt2)
+  } 
+ 
+ #### split multi-barcoded cells on underscore such that each row is a cell and a unique barcode (there will be duplicated rows for multi-barcoded cells)
+
+  split_barcodes <- strsplit(bt$Barcode, "_")
+
+  bt_expanded <- bt[rep(seq_len(nrow(bt)), lengths(split_barcodes)), ]
+
+  bt_expanded$Barcode <- unlist(split_barcodes)
   
-  #### combine back together with new dummy barcode names for NA cells
-  bt <- rbind(bt1, bt2)
-  
-  #### split multi-barcoded cells on underscore such that each row is a cell and a unique barcode (there will be duplicated rows for multi-barcoded cells)
-  bc <- df %>%
-    mutate(Barcode = str_split(Barcode, "_")) %>%
-    unnest(Barcode)
+  #### one-hot table for barcode identity
+  bc <- bt_expanded %>%
+    mutate(value = 1) %>%
+    pivot_wider(names_from = Barcode, values_from = value, values_fill = list(value = 0)) %>% 
+    data.table()
 
   rn <- bc[, rn]
 
